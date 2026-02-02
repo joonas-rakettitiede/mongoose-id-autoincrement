@@ -4,50 +4,53 @@ const incrementSchema = new mongoose.Schema({
   count: Number
 });
 var Increment;
-exports.initialize = function (connection) {
+exports.initialize = function (connection, modelName) {
+  var model = modelName || 'Increment';
   try {
-    Increment = connection.model('Increment');
+    Increment = connection.model(model);
   } catch (ex) {
     if (ex.name === 'MissingSchemaError') {
-      Increment = connection.model('Increment', incrementSchema);
+      Increment = connection.model(model, incrementSchema);
     }
     else
       throw ex;
   }
 };
 
-exports.plugin = function(schema, options) {
+exports.plugin = function (schema, options) {
   if (!incrementSchema || !Increment) throw new Error("mongoose-id-autoincrement has not been initialized");
 
-  var settings = {
-    model: null, // The model to configure the plugin for.
-    field: '_id', // The field the plugin should track.
-    unique: true // Should we create a unique index for the field
-  },
+  // var settings = {
+  //   model: null, // The model to configure the plugin for.
+  //   field: '_id', // The field the plugin should track.
+  //   unique: true // Should we create a unique index for the field
+  // },
 
-  settings = options;
+  var settings = options;
 
   const model = settings.model;
-  fields = {}, 
+  var fields = {};
   fields[settings.field] = {
     type: Number,
-    require: true
+    require: true,
+    unique: settings.unique
   };
-  fields[settings.field].unique = settings.unique;
   schema.add(fields);
 
-  schema.pre('save', function (next) {
-    const user = this;
-    if (user.isNew) {
-      Increment.findOneAndUpdate(
-        { model: model },
-        { $inc: { count: 1 } },
-        { new: true, upsert: true }
-      ).then((increment) => {
+  schema.pre('save', async function (next) {
+    if (this.isNew) {
+      try {
+        const increment = await Increment.findOneAndUpdate(
+          { model: model },
+          { $inc: { count: 1 } },
+          { new: true, upsert: true }
+        );
 
-        user.unique_id = increment.count;
-        next();
-      });
+        this[settings.field] = increment.count; // Assign the unique_id here
+        next(); // Proceed after the field is updated
+      } catch (err) {
+        next(err); // Pass any errors to the next middleware
+      }
     } else {
       next();
     }
